@@ -4,7 +4,7 @@ set -x
 # stage 1: pretrain
 # stage 2: finetune
 # stage 3: decode
-stage=2
+stage=3
 
 # model_name need to be [wav2vec|hubert]
 model_name=hubert
@@ -21,6 +21,7 @@ exp_name=libri960h_base_debug
 # directory where fairseq is installed
 # e.g. in my docker image, it is /espnet/tools/fairseq
 code_dir=/espnet/tools/fairseq
+# code_dir=/fairseq
 
 # log function
 log() {
@@ -84,7 +85,7 @@ if [ ${model_name} == "wav2vec" ]; then
         log "Stage 2: finetune"
 
         # set finetune config
-        config_finetune_dir=${code_dir}/examples/wav2vec/config/finetuning
+        config_finetune_dir=${work_dir}/examples/wav2vec/config/finetuning
         config_finetune_name=base_1h
 
         # set pretrained model
@@ -96,6 +97,7 @@ if [ ${model_name} == "wav2vec" ]; then
         valid_subset=valid
 
         # set finetune output model
+        finetune_data_mode=1h
         output_dir=${work_dir}/outputs/${model_name}/${exp_name}
         finetune_output_dir=${output_dir}/finetune_${finetune_data_mode}
 
@@ -109,57 +111,89 @@ if [ ${model_name} == "wav2vec" ]; then
         optimization.update_freq=${update_freq} \
         dataset.train_subset=${train_subset}  \
         dataset.valid_subset=${valid_subset} \
+        hydra.run.dir=${finetune_output_dir} \
         common.log_interval=10 \
 
     fi
 
-    # todo: verify its correctness
     if [ ${stage} -eq 3 ]; then
         log "Stage 3: decode"
 
         # edit model config
-        config_decode_dir=${code_dir}/examples/hubert/config/decode
+        config_decode_dir=${work_dir}/examples/hubert/config/decode
         config_decode_name=infer_kenlm
 
         decode_output_dir=${work_dir}/outputs/${model_name}/${exp_name}/${data_mode}/decode
 
         # lexicon & ngram for hubert
-        lexicon_file=${code_dir}/examples/hubert/lexicon/librispeech_lexicon.lst
-        arpa_file=${code_dir}/examples/hubert/arpa/4-gram.arpa
+        lexicon_file=${work_dir}/examples/hubert/lexicon/librispeech_lexicon.lst
+        arpa_file=${work_dir}/examples/hubert/arpa/4-gram.arpa
+
+
+        decode_data_path=/mnt/lustre/sjtu/home/xc915/superb/dataset/librispeech_finetuning_data/valid
+
+        subset=valid
+        # ckpt_raw=/fairseq/examples/wav2vec/manifest-10h
+        # ckpt_raw=/userhome/user/chenxie95/github/fairseq/examples/wav2vec/manifest
+        ckpt_raw=/userhome/user/zsz01/repo/fairseq/examples/wav2vec/fine-tune-data/1h
+        model_path=/userhome/user/chenxie95/github/fairseq/outputs/wav2vec/libri960h_base/finetune_1h/checkpoints/
+        model_size=checkpoint_best.pt
+        result_path=/userhome/user/chenxie95/github/fairseq/outputs/wav2vec/libri960h_base/finetune_1h/decode
+
+        # lexicon & ngram for hubert
+        lexicon_file=/userhome/user/chenxie95/github/fairseq/outputs/hubert/pretrained_models/librispeech_lexicon.lst
+        arpa_file=/userhome/user/chenxie95/github/fairseq/outputs/hubert/pretrained_models/4-gram.arpa
 
         # use lm
         use_kenlm=false
 
-        decode_data_path=/mnt/lustre/sjtu/home/xc915/superb/dataset/librispeech_finetuning_data/valid
+        if ${use_kenlm}; then
+            cd ${code_dir} && python3 examples/speech_recognition/infer.py \
+            ${ckpt_raw} \
+            --task audio_finetuning \
+            --nbest 1 \
+            --path ${model_path}/${model_size} \
+            --gen-subset $subset \
+            --results-path ${result_path} \
+            --w2l-decoder kenlm \
+            --lexicon ${lexicon_file} \
+            --lm-model ${arpa_file} \
+            --lm-weight 2 \
+            --word-score -1 \
+            --sil-weight 0 \
+            --criterion ctc \
+            --labels ltr \
+            --max-tokens 4000000 \
+            --post-process letter \
 
-        if ${using_KenLM}; then
-            cd ${code_dir} && python3 examples/speech_recognition/new/infer.py \
-            --config-dir ${config_decode_dir} \
-            --config-name infer_kenlm \
-            task.data=${decode_data_path} \
-            task.normalize=false \
-            common_eval.path=${output_dir}/checkpoints/checkpoint_best.pt \
-            dataset.gen_subset=test \
-            decoding.lexicon=${lexicon_file} \
-            decoding.lmpath=${arpa_file} \
-            hydra.run.dir=${decode_output_dir}
         else
-            cd ${code_dir} && python3 examples/speech_recognition/new/infer.py \
-            --config-dir ${config_decode_dir} \
-            --config-name infer_viterbi \
-            task.data=${decode_data_path} \
-            task.normalize=false \
-            common_eval.path=${output_dir}/checkpoints/checkpoint_best.pt \
-            dataset.gen_subset=test \
-            hydra.run.dir=${decode_output_dir}
+            cd ${code_dir} && python3 examples/speech_recognition/infer.py \
+            ${ckpt_raw} \
+            --task audio_finetuning \
+            --nbest 1 \
+            --path ${model_path}/${model_size} \
+            --gen-subset $subset \
+            --results-path ${result_path} \
+            --w2l-decoder viterbi \
+            --lm-weight 2 \
+            --word-score -1 \
+            --sil-weight 0 \
+            --criterion ctc \
+            --labels ltr \
+            --max-tokens 4000000 \
+            --post-process letter \
+
         fi
+
     fi
 # for hubert
 else
     if [ ${stage} -eq 1 ]; then
         log "Stage 1: pretrain"
 
-        config_pretrain_dir=${code_dir}/examples/hubert/config/pretrain
+        # do remember to comment the port assign in distributed setting
+        # otherwise, it will cause issue without running init_process_group
+        config_pretrain_dir=${work_dir}/examples/hubert/config/pretrain
         config_pretrain_name=hubert_base_librispeech
 
         # specify the output directory for storing checkpoints, tensorboard log and train log
@@ -213,7 +247,7 @@ else
         log "Stage 2: finetune"
 
         # set finetune config
-        config_finetune_dir=${code_dir}/examples/hubert/config/finetune
+        config_finetune_dir=${work_dir}/examples/hubert/config/finetune
         config_finetune_name=base_10h
 
         # set pretrained model
@@ -243,7 +277,7 @@ else
         log "Stage 3: decode"
 
         # edit model config
-        config_decode_dir=${code_dir}/examples/hubert/config/decode
+        config_decode_dir=${work_dir}/examples/hubert/config/decode
 
         finetune_data_mode=10h
         decode_output_dir=${output_dir}/finetune_${finetune_data_mode}/decode
@@ -256,7 +290,8 @@ else
         use_kenlm=false
 
         decode_data_path=/userhome/data/librispeech/librispeech_finetuning_data/valid
-        decode_model_path=/userhome/user/chenxie95/github/fairseq/outputs/hubert/pretrained_models/checkpoint_best.pt
+        # decode_model_path=/userhome/user/chenxie95/github/fairseq/outputs/hubert/pretrained_models/checkpoint_best.pt
+        decode_model_path=/userhome/user/chenxie95/github/fairseq/outputs/hubert/libri960h_base_debug/finetune_10h/checkpoints/checkpoint_best.pt
 
         if ${use_kenlm}; then
             cd ${code_dir} && python3 examples/speech_recognition/new/infer.py \

@@ -125,27 +125,24 @@ if [ ${model_name} == "wav2vec" ]; then
 
         decode_output_dir=${work_dir}/outputs/${model_name}/${exp_name}/${data_mode}/decode
 
-        # lexicon & ngram for hubert
-        lexicon_file=${work_dir}/examples/hubert/lexicon/librispeech_lexicon.lst
-        arpa_file=${work_dir}/examples/hubert/arpa/4-gram.arpa
-
-
         decode_data_path=/mnt/lustre/sjtu/home/xc915/superb/dataset/librispeech_finetuning_data/valid
 
-        subset=valid
-        # ckpt_raw=/fairseq/examples/wav2vec/manifest-10h
-        # ckpt_raw=/userhome/user/chenxie95/github/fairseq/examples/wav2vec/manifest
-        ckpt_raw=/userhome/user/zsz01/repo/fairseq/examples/wav2vec/fine-tune-data/1h
+        subset=test
+        ckpt_raw=/userhome/data/librispeech/librispeech_finetuning_data/valid
         model_path=/userhome/user/chenxie95/github/fairseq/outputs/wav2vec/libri960h_base/finetune_1h/checkpoints/
         model_size=checkpoint_best.pt
         result_path=/userhome/user/chenxie95/github/fairseq/outputs/wav2vec/libri960h_base/finetune_1h/decode
 
-        # lexicon & ngram for hubert
+        # lexicon & ngram files
         lexicon_file=/userhome/user/chenxie95/github/fairseq/outputs/hubert/pretrained_models/librispeech_lexicon.lst
         arpa_file=/userhome/user/chenxie95/github/fairseq/outputs/hubert/pretrained_models/4-gram.arpa
+        # need to copy the lm_librispeech_word_transformer.txt to dict.txt and change all words to uppercase manually
+        # related files: https://github.com/flashlight/wav2letter/tree/main/recipes/sota/2019
+        fairseqlm=/userhome/user/chenxie95/github/fairseq/outputs/hubert/pretrained_models/lm_librispeech_word_transformer.pt
 
         # use lm
         use_kenlm=false
+        use_fairseqlm=true
 
         if ${use_kenlm}; then
             cd ${code_dir} && python3 examples/speech_recognition/infer.py \
@@ -158,6 +155,25 @@ if [ ${model_name} == "wav2vec" ]; then
             --w2l-decoder kenlm \
             --lexicon ${lexicon_file} \
             --lm-model ${arpa_file} \
+            --lm-weight 2 \
+            --word-score -1 \
+            --sil-weight 0 \
+            --criterion ctc \
+            --labels ltr \
+            --max-tokens 4000000 \
+            --post-process letter \
+
+        elif ${use_fairseqlm}; then
+            cd ${code_dir} && python3 examples/speech_recognition/infer.py \
+            ${ckpt_raw} \
+            --task audio_finetuning \
+            --nbest 1 \
+            --path ${model_path}/${model_size} \
+            --gen-subset $subset \
+            --results-path ${result_path} \
+            --w2l-decoder fairseqlm \
+            --lexicon ${lexicon_file} \
+            --lm-model ${fairseqlm} \
             --lm-weight 2 \
             --word-score -1 \
             --sil-weight 0 \

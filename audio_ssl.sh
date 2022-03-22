@@ -104,7 +104,6 @@ if [ ${model_name} == "wav2vec" ]; then
         cd ${code_dir} && python3 fairseq_cli/hydra_train.py \
         --config-dir ${config_finetune_dir} \
         --config-name ${config_finetune_name} \
-        distributed_training.distributed_port=8989 \
         task.data=${finetune_data_path} \
         model.w2v_path=${pretrain_model_name} \
         distributed_training.distributed_world_size=${distributed_world_size}  \
@@ -113,6 +112,7 @@ if [ ${model_name} == "wav2vec" ]; then
         dataset.valid_subset=${valid_subset} \
         hydra.run.dir=${finetune_output_dir} \
         common.log_interval=10 \
+        # distributed_training.distributed_port=8989 \
 
     fi
 

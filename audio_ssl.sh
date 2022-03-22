@@ -15,13 +15,13 @@ fi
 
 # set working dir and output dir names
 work_dir=/userhome/user/chenxie95/github/fairseq
-exp_name=libri960h_base_debug
+exp_name=libri960h_base
 
 
 # directory where fairseq is installed
 # e.g. in my docker image, it is /espnet/tools/fairseq
-code_dir=/espnet/tools/fairseq
-# code_dir=/fairseq
+# code_dir=/espnet/tools/fairseq
+code_dir=/fairseq
 
 # log function
 log() {
@@ -94,12 +94,15 @@ if [ ${model_name} == "wav2vec" ]; then
         # set finetune data
         finetune_data_path=/userhome/user/zsz01/repo/fairseq/examples/wav2vec/fine-tune-data/1h
         train_subset=train
-        valid_subset=valid
+        valid_subset=dev_other
 
         # set finetune output model
         finetune_data_mode=1h
         output_dir=${work_dir}/outputs/${model_name}/${exp_name}
         finetune_output_dir=${output_dir}/finetune_${finetune_data_mode}
+
+        distributed_world_size=1
+        update_freq=[8]
 
         cd ${code_dir} && python3 fairseq_cli/hydra_train.py \
         --config-dir ${config_finetune_dir} \
@@ -111,7 +114,7 @@ if [ ${model_name} == "wav2vec" ]; then
         dataset.train_subset=${train_subset}  \
         dataset.valid_subset=${valid_subset} \
         hydra.run.dir=${finetune_output_dir} \
-        common.log_interval=10 \
+        common.log_interval=200 \
         # distributed_training.distributed_port=8989 \
 
     fi
@@ -119,16 +122,10 @@ if [ ${model_name} == "wav2vec" ]; then
     if [ ${stage} -eq 3 ]; then
         log "Stage 3: decode"
 
-        # edit model config
-        config_decode_dir=${work_dir}/examples/hubert/config/decode
-        config_decode_name=infer_kenlm
-
         decode_output_dir=${work_dir}/outputs/${model_name}/${exp_name}/${data_mode}/decode
 
-        decode_data_path=/mnt/lustre/sjtu/home/xc915/superb/dataset/librispeech_finetuning_data/valid
-
+        ckpt_raw=/userhome/data/librispeech/librispeech_finetuning_data/dev-clean
         subset=test
-        ckpt_raw=/userhome/data/librispeech/librispeech_finetuning_data/valid
         model_path=/userhome/user/chenxie95/github/fairseq/outputs/wav2vec/libri960h_base/finetune_1h/checkpoints/
         model_size=checkpoint_best.pt
         result_path=/userhome/user/chenxie95/github/fairseq/outputs/wav2vec/libri960h_base/finetune_1h/decode
@@ -142,7 +139,7 @@ if [ ${model_name} == "wav2vec" ]; then
 
         # use lm
         use_kenlm=false
-        use_fairseqlm=true
+        use_fairseqlm=false
 
         if ${use_kenlm}; then
             cd ${code_dir} && python3 examples/speech_recognition/infer.py \
